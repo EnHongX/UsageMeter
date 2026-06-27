@@ -1,0 +1,288 @@
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:7612";
+
+export type Plan = {
+  id: string;
+  name: string;
+  billingCurrency: "USD" | "CNY";
+  monthlyBaseFee: number;
+  includedUnits: number;
+  dailyUnitLimit: number;
+  overageUnitPrice: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type PlanInput = {
+  name: string;
+  billingCurrency: Plan["billingCurrency"];
+  monthlyBaseFee: number;
+  includedUnits: number;
+  dailyUnitLimit: number;
+  overageUnitPrice: number;
+};
+
+export type Tenant = {
+  id: string;
+  name: string;
+  status: "ACTIVE" | "SUSPENDED";
+  planId: string;
+  plan?: Plan;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ApiKey = {
+  id: string;
+  tenantId: string;
+  keyPrefix: string;
+  name: string;
+  status: "ACTIVE" | "REVOKED";
+  createdAt?: string;
+  revokedAt: string | null;
+  tenant?: Pick<Tenant, "id" | "name" | "status">;
+};
+
+export type CreatedApiKey = ApiKey & {
+  key: string;
+};
+
+export type CurrentUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: "ADMIN" | "OPERATOR" | "VIEWER";
+};
+
+export type UsageEvent = {
+  id: string;
+  requestId: string;
+  endpoint: string;
+  method: string;
+  statusCode: number;
+  costUnits: number;
+  occurredAt?: string;
+  tenant?: Pick<Tenant, "id" | "name" | "status">;
+  apiKey?: Pick<ApiKey, "id" | "name" | "keyPrefix" | "status">;
+};
+
+export type UsageDailyAggregate = {
+  id: string;
+  date: string;
+  totalRequests: number;
+  totalCostUnits: number;
+  tenant?: Pick<Tenant, "id" | "name" | "status">;
+};
+
+export type Invoice = {
+  id: string;
+  billingPeriod: string;
+  billingCurrency: "USD" | "CNY";
+  usedUnits: number;
+  overageUnits: number;
+  totalAmount: number;
+  status: "DRAFT" | "ISSUED" | "PAID" | "VOID";
+  tenant?: Pick<Tenant, "id" | "name" | "status">;
+  lineItems: Array<{ id?: string; description: string }>;
+  baseFee?: number;
+  includedUnits?: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type SystemSettings = {
+  systemName: string;
+  defaultPageSize: number;
+  allowRegistration: boolean;
+  billingCurrency: "USD" | "CNY";
+};
+
+export type AuditLog = {
+  id: string;
+  action: string;
+  resource: string;
+  resourceId: string | null;
+  createdAt: string;
+  user?: Pick<CurrentUser, "id" | "name" | "email" | "role"> | null;
+};
+
+type ApiResponse<T> = {
+  code: string;
+  message: string;
+  data: T;
+};
+
+function isApiResponse<T>(value: unknown): value is ApiResponse<T> {
+  return Boolean(value && typeof value === "object" && "code" in value && "message" in value && "data" in value);
+}
+
+function normalizeList<T>(value: T[] | { data: T[] }) {
+  return Array.isArray(value) ? value : value.data;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...init?.headers
+    },
+    ...init
+  });
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as unknown;
+    const message = isApiResponse(body) ? body.message : `Request failed with ${response.status}`;
+    throw new Error(message);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const body = (await response.json()) as unknown;
+  return isApiResponse<T>(body) ? body.data : (body as T);
+}
+
+export function getHealth() {
+  return request<{ status: string; service: string }>("/health");
+}
+
+export function login(input: { email: string; password: string }) {
+  return request<{ user: CurrentUser }>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function register(input: { email: string; name: string; password: string }) {
+  return request<{ user: CurrentUser }>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function logout() {
+  return request<void>("/auth/logout", {
+    method: "POST"
+  });
+}
+
+export function getCurrentUser() {
+  return request<{ user: CurrentUser }>("/auth/me");
+}
+
+export function changePassword(input: { currentPassword: string; newPassword: string }) {
+  return request<void>("/auth/password", {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function listPlans() {
+  return normalizeList(await request<Plan[] | { data: Plan[] }>("/plans"));
+}
+
+export function getPlan(id: string) {
+  return request<Plan>(`/plans/${id}`);
+}
+
+export function createPlan(input: PlanInput) {
+  return request<Plan>("/plans", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function updatePlan(id: string, input: Partial<PlanInput>) {
+  return request<Plan>(`/plans/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function listTenants() {
+  return normalizeList(await request<Tenant[] | { data: Tenant[] }>("/tenants"));
+}
+
+export function getTenant(id: string) {
+  return request<Tenant>(`/tenants/${id}`);
+}
+
+export function createTenant(input: { name: string; planId: string }) {
+  return request<Tenant>("/tenants", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateTenant(id: string, input: { name: string; planId: string; status: Tenant["status"] }) {
+  return request<Tenant>(`/tenants/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function listApiKeys() {
+  return normalizeList(await request<ApiKey[] | { data: ApiKey[] }>("/api-keys"));
+}
+
+export function getApiKey(id: string) {
+  return request<ApiKey>(`/api-keys/${id}`);
+}
+
+export function createApiKey(input: { tenantId: string; name: string }) {
+  return request<CreatedApiKey>("/api-keys", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateApiKey(id: string, input: { name: string }) {
+  return request<ApiKey>(`/api-keys/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export function revokeApiKey(id: string) {
+  return request<ApiKey>(`/api-keys/${id}/revoke`, {
+    method: "PATCH"
+  });
+}
+
+export function deleteApiKey(id: string) {
+  return request<void>(`/api-keys/${id}`, {
+    method: "DELETE"
+  });
+}
+
+export async function listUsageEvents() {
+  return normalizeList(await request<UsageEvent[] | { data: UsageEvent[] }>("/usage/events"));
+}
+
+export async function listDailyUsage() {
+  return normalizeList(await request<UsageDailyAggregate[] | { data: UsageDailyAggregate[] }>("/usage/daily"));
+}
+
+export async function listInvoices() {
+  return normalizeList(await request<Invoice[] | { data: Invoice[] }>("/billing/invoices"));
+}
+
+export function getInvoice(id: string) {
+  return request<Invoice>(`/billing/invoices/${id}`);
+}
+
+export function getSettings() {
+  return request<SystemSettings>("/settings");
+}
+
+export function updateSettings(input: SystemSettings) {
+  return request<SystemSettings>("/settings", {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function listAuditLogs() {
+  return normalizeList(await request<AuditLog[] | { data: AuditLog[] }>("/audit-logs"));
+}

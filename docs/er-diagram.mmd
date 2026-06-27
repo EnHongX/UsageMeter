@@ -1,0 +1,122 @@
+erDiagram
+  USER ||--o{ SESSION : has
+  USER ||--o{ AUDIT_LOG : writes
+  PLAN ||--o{ TENANT : assigned_to
+  TENANT ||--o{ API_KEY : owns
+  TENANT ||--o{ USAGE_EVENT : records
+  API_KEY ||--o{ USAGE_EVENT : authenticates
+  TENANT ||--o{ USAGE_DAILY_AGGREGATE : aggregates
+  TENANT ||--o{ INVOICE : billed_by
+  INVOICE ||--o{ INVOICE_LINE_ITEM : contains
+
+  USER {
+    string id PK
+    string email UK
+    string name
+    string passwordHash
+    UserRole role
+    UserStatus status
+    datetime createdAt
+    datetime updatedAt
+  }
+
+  SESSION {
+    string id PK
+    string userId FK
+    string tokenHash UK
+    datetime expiresAt
+    datetime createdAt
+  }
+
+  PLAN {
+    string id PK
+    string name UK
+    BillingCurrency billingCurrency
+    int monthlyBaseFee
+    int includedUnits
+    int dailyUnitLimit
+    int overageUnitPrice
+    datetime createdAt
+    datetime updatedAt
+  }
+
+  TENANT {
+    string id PK
+    string name
+    TenantStatus status
+    string planId FK
+    datetime createdAt
+    datetime updatedAt
+  }
+
+  API_KEY {
+    string id PK
+    string tenantId FK
+    string keyHash UK
+    string keyPrefix
+    string name
+    ApiKeyStatus status
+    datetime createdAt
+    datetime revokedAt
+  }
+
+  USAGE_EVENT {
+    string id PK
+    string tenantId FK
+    string apiKeyId FK
+    string requestId
+    string endpoint
+    string method
+    int statusCode
+    int costUnits
+    datetime occurredAt
+  }
+
+  USAGE_DAILY_AGGREGATE {
+    string id PK
+    string tenantId FK
+    datetime date
+    int totalRequests
+    int totalCostUnits
+    datetime updatedAt
+  }
+
+  INVOICE {
+    string id PK
+    string tenantId FK
+    string billingPeriod
+    BillingCurrency billingCurrency
+    int baseFee
+    int includedUnits
+    int usedUnits
+    int overageUnits
+    int totalAmount
+    InvoiceStatus status
+    datetime createdAt
+    datetime updatedAt
+  }
+
+  INVOICE_LINE_ITEM {
+    string id PK
+    string invoiceId FK
+    string description
+    int amount
+    int quantity
+    int unitPrice
+  }
+
+  SYSTEM_SETTING {
+    string key PK
+    string value
+    datetime updatedAt
+  }
+
+  AUDIT_LOG {
+    string id PK
+    string userId FK
+    string action
+    string resource
+    string resourceId
+    json metadata
+    datetime createdAt
+  }
