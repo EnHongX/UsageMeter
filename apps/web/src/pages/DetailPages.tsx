@@ -1,7 +1,28 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-import { ApiKey, getApiKey, getInvoice, getPlan, getTenant, Invoice, listApiKeys, listDailyUsage, listInvoices, listUsageEvents, Plan, Tenant, UsageDailyAggregate, UsageEvent } from "../api/client";
+import {
+  ApiKey,
+  BillingRun,
+  ExceptionCase,
+  getApiKey,
+  getInvoice,
+  getPlan,
+  getTenant,
+  Invoice,
+  listApiKeys,
+  listBillingRuns,
+  listDailyUsage,
+  listExceptions,
+  listInvoices,
+  listRateLimitPolicies,
+  listUsageEvents,
+  Plan,
+  RateLimitPolicy,
+  Tenant,
+  UsageDailyAggregate,
+  UsageEvent
+} from "../api/client";
 import { formatMoney } from "../utils/money";
 import { apiKeyStatusClass, formatApiKeyStatus, formatInvoiceStatus, formatTenantStatus, invoiceStatusClass, tenantStatusClass } from "../utils/status";
 
@@ -52,15 +73,21 @@ export function TenantDetailPage() {
   const [usageEvents, setUsageEvents] = useState<UsageEvent[]>([]);
   const [dailyUsage, setDailyUsage] = useState<UsageDailyAggregate[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [policies, setPolicies] = useState<RateLimitPolicy[]>([]);
+  const [billingRuns, setBillingRuns] = useState<BillingRun[]>([]);
+  const [exceptions, setExceptions] = useState<ExceptionCase[]>([]);
 
   useEffect(() => {
-    Promise.all([getTenant(id), listApiKeys(), listUsageEvents(), listDailyUsage(), listInvoices()]).then(
-      ([nextTenant, nextApiKeys, nextUsageEvents, nextDailyUsage, nextInvoices]) => {
+    Promise.all([getTenant(id), listApiKeys(), listUsageEvents(), listDailyUsage(), listInvoices(), listRateLimitPolicies(), listBillingRuns(), listExceptions()]).then(
+      ([nextTenant, nextApiKeys, nextUsageEvents, nextDailyUsage, nextInvoices, nextPolicies, nextBillingRuns, nextExceptions]) => {
         setTenant(nextTenant);
         setApiKeys(nextApiKeys.filter((apiKey) => apiKey.tenantId === id));
         setUsageEvents(nextUsageEvents.filter((event) => event.tenant?.id === id));
         setDailyUsage(nextDailyUsage.filter((usage) => usage.tenant?.id === id));
         setInvoices(nextInvoices.filter((invoice) => invoice.tenant?.id === id));
+        setPolicies(nextPolicies.filter((policy) => policy.tenantId === id || policy.planId === nextTenant.planId));
+        setBillingRuns(nextBillingRuns.filter((run) => run.tenantId === id));
+        setExceptions(nextExceptions.filter((exception) => exception.tenantId === id));
       }
     );
   }, [id]);
@@ -79,6 +106,8 @@ export function TenantDetailPage() {
               <div><dt>状态</dt><dd><span className={tenantStatusClass(tenant.status)}>{formatTenantStatus(tenant.status)}</span></dd></div>
               <div><dt>套餐</dt><dd>{tenant.plan?.name ?? "-"}</dd></div>
               <div><dt>API Key</dt><dd>{apiKeys.length}</dd></div>
+              <div><dt>限流策略</dt><dd>{policies.length}</dd></div>
+              <div><dt>待处理异常</dt><dd>{exceptions.filter((exception) => exception.status !== "RESOLVED").length}</dd></div>
               <div><dt>租户 ID</dt><dd><code>{tenant.id}</code></dd></div>
             </dl>
           </section>
@@ -197,6 +226,51 @@ export function TenantDetailPage() {
                     <td>{invoice.usedUnits}</td>
                     <td>{formatMoney(invoice.totalAmount, invoice.billingCurrency)}</td>
                     <td><span className={invoiceStatusClass(invoice.status)}>{formatInvoiceStatus(invoice.status)}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+
+          <section className="table-panel">
+            <div className="table-header">
+              <div>
+                <h2>运营配置</h2>
+                <p>当前租户命中的限流策略、账单运行和异常事项。</p>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>类型</th>
+                  <th>对象</th>
+                  <th>状态</th>
+                  <th>摘要</th>
+                </tr>
+              </thead>
+              <tbody>
+                {policies.map((policy) => (
+                  <tr key={policy.id}>
+                    <td>限流策略</td>
+                    <td>{policy.scope === "TENANT" ? "租户覆盖" : "套餐默认"}</td>
+                    <td>{policy.status === "ACTIVE" ? "启用" : "停用"}</td>
+                    <td>每日额度 {policy.dailyUnitLimit}，预警 {policy.warningThresholdPercent}%</td>
+                  </tr>
+                ))}
+                {billingRuns.map((run) => (
+                  <tr key={run.id}>
+                    <td>账单运行</td>
+                    <td>{run.billingPeriod}</td>
+                    <td>{run.status}</td>
+                    <td>{run.failureReason ?? "运行记录已创建"}</td>
+                  </tr>
+                ))}
+                {exceptions.map((exception) => (
+                  <tr key={exception.id}>
+                    <td>异常</td>
+                    <td>{exception.type}</td>
+                    <td>{exception.status}</td>
+                    <td>{exception.summary}</td>
                   </tr>
                 ))}
               </tbody>

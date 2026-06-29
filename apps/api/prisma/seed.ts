@@ -108,6 +108,14 @@ function dayStart(daysAgo: number) {
 }
 
 async function clearDemoData() {
+  await prisma.notificationRule.deleteMany();
+  await prisma.notificationChannel.deleteMany();
+  await prisma.exceptionNote.deleteMany();
+  await prisma.exceptionCase.deleteMany();
+  await prisma.systemJobRun.deleteMany();
+  await prisma.billingRun.deleteMany();
+  await prisma.rateLimitEvent.deleteMany();
+  await prisma.rateLimitPolicy.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.session.deleteMany();
   await prisma.systemSetting.deleteMany();
@@ -277,9 +285,190 @@ async function seedInvoices(tenantIds: string[], plans: Awaited<ReturnType<typeo
   return invoices;
 }
 
+async function seedOperationsData({
+  adminId,
+  tenants,
+  plans,
+  apiKeys,
+  invoices
+}: {
+  adminId: string;
+  tenants: Awaited<ReturnType<typeof seedTenants>>;
+  plans: Awaited<ReturnType<typeof seedPlans>>;
+  apiKeys: Awaited<ReturnType<typeof seedApiKeys>>;
+  invoices: Awaited<ReturnType<typeof seedInvoices>>;
+}) {
+  const policies = await Promise.all([
+    ...plans.slice(0, 8).map((plan, index) =>
+      prisma.rateLimitPolicy.create({
+        data: {
+          scope: "PLAN",
+          planId: plan.id,
+          dailyUnitLimit: plan.dailyUnitLimit,
+          warningThresholdPercent: 75 + (index % 3) * 5,
+          status: index % 5 === 0 ? "DISABLED" : "ACTIVE"
+        }
+      })
+    ),
+    ...tenants.slice(0, 6).map((tenant, index) =>
+      prisma.rateLimitPolicy.create({
+        data: {
+          scope: "TENANT",
+          tenantId: tenant.id,
+          dailyUnitLimit: (index + 2) * 1500,
+          warningThresholdPercent: 80,
+          status: "ACTIVE"
+        }
+      })
+    )
+  ]);
+
+  await Promise.all(
+    tenants.slice(0, 10).map((tenant, index) =>
+      prisma.rateLimitEvent.create({
+        data: {
+          tenantId: tenant.id,
+          apiKeyId: apiKeys[index % apiKeys.length].id,
+          policyId: policies[index % policies.length].id,
+          requestId: `rl_202606_${String(index + 1).padStart(4, "0")}`,
+          endpoint: index % 2 === 0 ? "/api/v1/messages" : "/api/v1/search",
+          costUnits: 5,
+          limitUnits: (index + 2) * 1000,
+          usedUnits: (index + 2) * 1000 + 120,
+          reason: index % 2 === 0 ? "daily_limit_exceeded" : "warning_threshold_reached",
+          occurredAt: new Date(dayStart(index % 5).getTime() + index * 90_000)
+        }
+      })
+    )
+  );
+
+  await Promise.all(
+    tenants.slice(0, 12).map((tenant, index) =>
+      prisma.billingRun.create({
+        data: {
+          tenantId: tenant.id,
+          invoiceId: invoices[index % invoices.length].id,
+          billingPeriod: `2026-${String((index % 6) + 1).padStart(2, "0")}`,
+          status: index % 4 === 0 ? "FAILED" : index % 4 === 1 ? "RUNNING" : "SUCCESS",
+          startedAt: new Date(dayStart(index % 7).getTime() + index * 120_000),
+          finishedAt: index % 4 === 1 ? null : new Date(dayStart(index % 7).getTime() + index * 120_000 + 45_000),
+          failureReason: index % 4 === 0 ? "用量聚合数据缺失，账单生成已停止" : null
+        }
+      })
+    )
+  );
+
+  const cases = await Promise.all(
+    tenants.slice(0, 10).map((tenant, index) =>
+      prisma.exceptionCase.create({
+        data: {
+          tenantId: tenant.id,
+          type: ["AUTH_FAILURE", "RATE_LIMITED", "BILLING_FAILED", "JOB_FAILED", "USAGE_ANOMALY"][index % 5] as
+            | "AUTH_FAILURE"
+            | "RATE_LIMITED"
+            | "BILLING_FAILED"
+            | "JOB_FAILED"
+            | "USAGE_ANOMALY",
+          severity: ["LOW", "MEDIUM", "HIGH", "CRITICAL"][index % 4] as "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+          status: index % 3 === 0 ? "ACKNOWLEDGED" : index % 5 === 0 ? "RESOLVED" : "OPEN",
+          source: index % 2 === 0 ? "api_gateway" : "billing_worker",
+          resourceType: index % 2 === 0 ? "request" : "billing_run",
+          resourceId: index % 2 === 0 ? `req_202606_${String(index + 1).padStart(4, "0")}` : invoices[index % invoices.length].id,
+          summary: index % 2 === 0 ? "客户请求触发运营异常" : "账单或任务执行异常",
+          details: "演示数据：用于运营后台异常处理流程展示。",
+          assignee: index % 3 === 0 ? "平台管理员" : null,
+          openedAt: new Date(dayStart(index % 6).getTime() + index * 180_000),
+          resolvedAt: index % 5 === 0 ? new Date(dayStart(index % 6).getTime() + index * 180_000 + 3_600_000) : null
+        }
+      })
+    )
+  );
+
+  await Promise.all(
+    cases.slice(0, 4).map((exception, index) =>
+      prisma.exceptionNote.create({
+        data: {
+          exceptionId: exception.id,
+          userId: adminId,
+          body: index % 2 === 0 ? "已联系客户确认调用模式。" : "等待账单任务重跑后复核。"
+        }
+      })
+    )
+  );
+
+  const webhook = await prisma.notificationChannel.create({
+    data: {
+      name: "运营告警 Webhook",
+      type: "WEBHOOK",
+      target: "https://example.com/usagemeter/webhook",
+      status: "ACTIVE",
+      lastTestedAt: new Date()
+    }
+  });
+  const email = await prisma.notificationChannel.create({
+    data: {
+      name: "财务邮件通知",
+      type: "EMAIL",
+      target: "finance@example.com",
+      status: "DISABLED"
+    }
+  });
+
+  await prisma.notificationRule.createMany({
+    data: [
+      { name: "额度预警通知", eventType: "USAGE_WARNING", severity: "MEDIUM", channelId: webhook.id, threshold: 80, status: "ACTIVE" },
+      { name: "限流触发通知", eventType: "RATE_LIMITED", severity: "HIGH", channelId: webhook.id, threshold: null, status: "ACTIVE" },
+      { name: "账单失败通知", eventType: "BILLING_FAILED", severity: "HIGH", channelId: email.id, threshold: null, status: "DISABLED" },
+      { name: "高优先级异常通知", eventType: "HIGH_PRIORITY_EXCEPTION", severity: "CRITICAL", channelId: webhook.id, threshold: null, status: "ACTIVE" }
+    ]
+  });
+
+  await prisma.systemJobRun.createMany({
+    data: [
+      {
+        jobType: "USAGE_AGGREGATION",
+        status: "SUCCESS",
+        triggeredBy: "schedule",
+        startedAt: new Date(dayStart(0).getTime() + 60_000),
+        finishedAt: new Date(dayStart(0).getTime() + 92_000),
+        durationMs: 32_000,
+        input: { date: dayStart(0).toISOString().slice(0, 10) },
+        output: { tenants: 28, aggregates: 28 }
+      },
+      {
+        jobType: "BILLING_GENERATION",
+        status: "FAILED",
+        triggeredBy: "manual",
+        startedAt: new Date(dayStart(0).getTime() + 300_000),
+        finishedAt: new Date(dayStart(0).getTime() + 345_000),
+        durationMs: 45_000,
+        input: { billingPeriod: "2026-06" },
+        output: { createdInvoices: 11 },
+        failureReason: "部分租户缺少聚合数据"
+      },
+      {
+        jobType: "NOTIFICATION_DELIVERY",
+        status: "SUCCESS",
+        triggeredBy: "event",
+        startedAt: new Date(dayStart(1).getTime() + 500_000),
+        finishedAt: new Date(dayStart(1).getTime() + 506_000),
+        durationMs: 6_000,
+        input: { eventType: "RATE_LIMITED" },
+        output: { delivered: 3 }
+      },
+      {
+        jobType: "DATA_CLEANUP",
+        status: "PENDING",
+        triggeredBy: "schedule",
+        input: { retentionDays: 180 }
+      }
+    ]
+  });
+}
+
 async function main() {
   await clearDemoData();
-  await seedPlatform();
+  const admin = await seedPlatform();
 
   const plans = await seedPlans();
   const tenants = await seedTenants(plans.map((plan) => plan.id));
@@ -289,10 +478,11 @@ async function main() {
     apiKeys.map((apiKey) => apiKey.id)
   );
   await seedDailyAggregates(tenants.map((tenant) => tenant.id));
-  await seedInvoices(
+  const invoices = await seedInvoices(
     tenants.map((tenant) => tenant.id),
     plans
   );
+  await seedOperationsData({ adminId: admin.id, tenants, plans, apiKeys, invoices });
 }
 
 main()

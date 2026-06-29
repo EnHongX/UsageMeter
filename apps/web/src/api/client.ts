@@ -105,6 +105,141 @@ export type AuditLog = {
   user?: Pick<CurrentUser, "id" | "name" | "email" | "role"> | null;
 };
 
+export type OperationalStatus = "ACTIVE" | "DISABLED";
+export type JobRunStatus = "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
+export type ExceptionSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export type RateLimitPolicy = {
+  id: string;
+  scope: "PLAN" | "TENANT";
+  tenantId: string | null;
+  planId: string | null;
+  dailyUnitLimit: number;
+  warningThresholdPercent: number;
+  status: OperationalStatus;
+  createdAt?: string;
+  updatedAt?: string;
+  tenant?: Pick<Tenant, "id" | "name" | "status"> | null;
+  plan?: Pick<Plan, "id" | "name" | "dailyUnitLimit"> | null;
+};
+
+export type RateLimitPolicyInput = {
+  scope: RateLimitPolicy["scope"];
+  tenantId?: string | null;
+  planId?: string | null;
+  dailyUnitLimit: number;
+  warningThresholdPercent: number;
+  status: OperationalStatus;
+};
+
+export type RateLimitEvent = {
+  id: string;
+  requestId: string;
+  endpoint: string;
+  costUnits: number;
+  limitUnits: number;
+  usedUnits: number;
+  reason: string;
+  occurredAt?: string;
+  tenant?: Pick<Tenant, "id" | "name" | "status">;
+  apiKey?: Pick<ApiKey, "id" | "name" | "keyPrefix" | "status"> | null;
+  policy?: Pick<RateLimitPolicy, "id" | "scope" | "dailyUnitLimit" | "warningThresholdPercent" | "status"> | null;
+};
+
+export type BillingRun = {
+  id: string;
+  tenantId: string;
+  invoiceId: string | null;
+  billingPeriod: string;
+  status: JobRunStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  failureReason: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  tenant?: Pick<Tenant, "id" | "name" | "status">;
+  invoice?: Pick<Invoice, "id" | "billingPeriod" | "status" | "totalAmount" | "billingCurrency"> | null;
+};
+
+export type BillingRunInput = {
+  tenantId: string;
+  billingPeriod: string;
+  invoiceId?: string | null;
+  status?: JobRunStatus;
+  failureReason?: string | null;
+};
+
+export type ExceptionCase = {
+  id: string;
+  tenantId: string | null;
+  type: "AUTH_FAILURE" | "RATE_LIMITED" | "BILLING_FAILED" | "JOB_FAILED" | "USAGE_ANOMALY" | "SYSTEM_ERROR";
+  severity: ExceptionSeverity;
+  status: "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
+  source: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  summary: string;
+  details: string | null;
+  assignee: string | null;
+  openedAt: string;
+  resolvedAt: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  tenant?: Pick<Tenant, "id" | "name" | "status"> | null;
+  notes?: ExceptionNote[];
+};
+
+export type ExceptionNote = {
+  id: string;
+  exceptionId: string;
+  userId: string | null;
+  body: string;
+  createdAt: string;
+  user?: Pick<CurrentUser, "id" | "name" | "email" | "role"> | null;
+};
+
+export type NotificationChannel = {
+  id: string;
+  name: string;
+  type: "WEBHOOK" | "EMAIL";
+  target: string;
+  status: OperationalStatus;
+  lastTestedAt: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  rules?: NotificationRule[];
+};
+
+export type NotificationRule = {
+  id: string;
+  name: string;
+  eventType: "USAGE_WARNING" | "RATE_LIMITED" | "BILLING_FAILED" | "JOB_FAILED" | "HIGH_PRIORITY_EXCEPTION";
+  severity: ExceptionSeverity | null;
+  channelId: string;
+  threshold: number | null;
+  status: OperationalStatus;
+  createdAt?: string;
+  updatedAt?: string;
+  channel?: NotificationChannel;
+};
+
+export type NotificationChannelInput = Pick<NotificationChannel, "name" | "type" | "target" | "status">;
+export type NotificationRuleInput = Pick<NotificationRule, "name" | "eventType" | "severity" | "channelId" | "threshold" | "status">;
+
+export type SystemJobRun = {
+  id: string;
+  jobType: "USAGE_AGGREGATION" | "BILLING_GENERATION" | "NOTIFICATION_DELIVERY" | "DATA_CLEANUP";
+  status: JobRunStatus;
+  triggeredBy: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number | null;
+  input: unknown;
+  output: unknown;
+  failureReason: string | null;
+  createdAt: string;
+};
+
 type ApiResponse<T> = {
   code: string;
   message: string;
@@ -270,6 +405,117 @@ export async function listInvoices() {
 
 export function getInvoice(id: string) {
   return request<Invoice>(`/billing/invoices/${id}`);
+}
+
+export async function listBillingRuns() {
+  return normalizeList(await request<BillingRun[] | { data: BillingRun[] }>("/billing/runs"));
+}
+
+export function createBillingRun(input: BillingRunInput) {
+  return request<BillingRun>("/billing/runs", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function retryBillingRun(id: string) {
+  return request<BillingRun>(`/billing/runs/${id}/retry`, {
+    method: "PATCH"
+  });
+}
+
+export async function listRateLimitPolicies() {
+  return normalizeList(await request<RateLimitPolicy[] | { data: RateLimitPolicy[] }>("/rate-limits/policies"));
+}
+
+export function createRateLimitPolicy(input: RateLimitPolicyInput) {
+  return request<RateLimitPolicy>("/rate-limits/policies", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateRateLimitPolicy(id: string, input: Partial<RateLimitPolicyInput>) {
+  return request<RateLimitPolicy>(`/rate-limits/policies/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function listRateLimitEvents() {
+  return normalizeList(await request<RateLimitEvent[] | { data: RateLimitEvent[] }>("/rate-limits/events"));
+}
+
+export async function listExceptions() {
+  return normalizeList(await request<ExceptionCase[] | { data: ExceptionCase[] }>("/exceptions"));
+}
+
+export function getException(id: string) {
+  return request<ExceptionCase>(`/exceptions/${id}`);
+}
+
+export function updateException(id: string, input: Pick<Partial<ExceptionCase>, "status" | "severity" | "assignee">) {
+  return request<ExceptionCase>(`/exceptions/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export function createExceptionNote(id: string, input: { body: string }) {
+  return request<ExceptionNote>(`/exceptions/${id}/notes`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function listNotificationChannels() {
+  return normalizeList(await request<NotificationChannel[] | { data: NotificationChannel[] }>("/notifications/channels"));
+}
+
+export function createNotificationChannel(input: NotificationChannelInput) {
+  return request<NotificationChannel>("/notifications/channels", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateNotificationChannel(id: string, input: Partial<NotificationChannelInput>) {
+  return request<NotificationChannel>(`/notifications/channels/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export function testNotificationChannel(id: string) {
+  return request<{ channel: NotificationChannel; delivered: boolean; simulated: boolean }>(`/notifications/channels/${id}/test`, {
+    method: "POST"
+  });
+}
+
+export async function listNotificationRules() {
+  return normalizeList(await request<NotificationRule[] | { data: NotificationRule[] }>("/notifications/rules"));
+}
+
+export function createNotificationRule(input: NotificationRuleInput) {
+  return request<NotificationRule>("/notifications/rules", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export function updateNotificationRule(id: string, input: Partial<NotificationRuleInput>) {
+  return request<NotificationRule>(`/notifications/rules/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function listSystemJobs() {
+  return normalizeList(await request<SystemJobRun[] | { data: SystemJobRun[] }>("/system/jobs"));
+}
+
+export function getSystemJob(id: string) {
+  return request<SystemJobRun>(`/system/jobs/${id}`);
 }
 
 export function getSettings() {

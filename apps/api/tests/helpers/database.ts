@@ -1,6 +1,14 @@
 import { prisma } from "../../src/lib/prisma.js";
 
 export async function resetDatabase() {
+  await prisma.notificationRule.deleteMany();
+  await prisma.notificationChannel.deleteMany();
+  await prisma.exceptionNote.deleteMany();
+  await prisma.exceptionCase.deleteMany();
+  await prisma.systemJobRun.deleteMany();
+  await prisma.billingRun.deleteMany();
+  await prisma.rateLimitEvent.deleteMany();
+  await prisma.rateLimitPolicy.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.session.deleteMany();
   await prisma.systemSetting.deleteMany();

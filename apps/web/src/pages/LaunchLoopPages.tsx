@@ -1,25 +1,43 @@
 import { AlertTriangle, Ban, FileWarning, Gauge, PlayCircle, ReceiptText, ShieldAlert, TimerReset } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Invoice, listDailyUsage, listInvoices, listTenants, listUsageEvents, Tenant, UsageDailyAggregate, UsageEvent } from "../api/client";
+import {
+  BillingRun,
+  createBillingRun,
+  ExceptionCase,
+  Invoice,
+  listBillingRuns,
+  listDailyUsage,
+  listExceptions,
+  listInvoices,
+  listTenants,
+  listUsageEvents,
+  retryBillingRun,
+  Tenant,
+  updateException,
+  UsageDailyAggregate,
+  UsageEvent
+} from "../api/client";
 import { formatMoney } from "../utils/money";
-import { formatInvoiceStatus, invoiceStatusClass } from "../utils/status";
 
 type LoadState = {
   tenants: Tenant[];
   dailyUsage: UsageDailyAggregate[];
   usageEvents: UsageEvent[];
   invoices: Invoice[];
+  billingRuns: BillingRun[];
+  exceptionCases: ExceptionCase[];
 };
 
 type RiskLevel = "normal" | "warning" | "over";
-type ExceptionKind = "auth" | "rateLimit" | "server" | "revokedKey";
 
 const initialState: LoadState = {
   tenants: [],
   dailyUsage: [],
   usageEvents: [],
-  invoices: []
+  invoices: [],
+  billingRuns: [],
+  exceptionCases: []
 };
 
 function currentPeriod() {
@@ -44,8 +62,15 @@ function todayDate() {
 }
 
 async function loadLaunchLoopData() {
-  const [tenants, dailyUsage, usageEvents, invoices] = await Promise.all([listTenants(), listDailyUsage(), listUsageEvents(), listInvoices()]);
-  return { tenants, dailyUsage, usageEvents, invoices };
+  const [tenants, dailyUsage, usageEvents, invoices, billingRuns, exceptionCases] = await Promise.all([
+    listTenants(),
+    listDailyUsage(),
+    listUsageEvents(),
+    listInvoices(),
+    listBillingRuns(),
+    listExceptions()
+  ]);
+  return { tenants, dailyUsage, usageEvents, invoices, billingRuns, exceptionCases };
 }
 
 function sumTenantUsage(usage: UsageDailyAggregate[], tenantId: string, period: string) {
@@ -94,37 +119,53 @@ function riskClass(level: RiskLevel) {
   }[level];
 }
 
-function exceptionMeta(kind: ExceptionKind) {
+function billingRunStatusClass(status: string) {
   return {
-    auth: { label: "鉴权失败", level: "高", icon: ShieldAlert },
-    rateLimit: { label: "限流触发", level: "中", icon: Gauge },
-    server: { label: "服务异常", level: "高", icon: FileWarning },
-    revokedKey: { label: "撤销 Key 调用", level: "中", icon: Ban }
-  }[kind];
+    PENDING: "status-pill muted",
+    RUNNING: "status-pill warning",
+    SUCCESS: "status-pill success",
+    FAILED: "status-pill danger"
+  }[status] ?? "status-pill muted";
 }
 
-function classifyExceptions(events: UsageEvent[]) {
-  return events.flatMap((event) => {
-    const kinds: ExceptionKind[] = [];
+function billingRunStatusLabel(status: string) {
+  return {
+    PENDING: "待生成",
+    RUNNING: "运行中",
+    SUCCESS: "成功",
+    FAILED: "失败"
+  }[status] ?? status;
+}
 
-    if (event.statusCode === 401 || event.statusCode === 403) {
-      kinds.push("auth");
-    }
+function exceptionStatusClass(status: string) {
+  return {
+    OPEN: "status-pill danger",
+    ACKNOWLEDGED: "status-pill warning",
+    RESOLVED: "status-pill success"
+  }[status] ?? "status-pill muted";
+}
 
-    if (event.statusCode === 429) {
-      kinds.push("rateLimit");
-    }
+function exceptionStatusLabel(status: string) {
+  return {
+    OPEN: "待处理",
+    ACKNOWLEDGED: "处理中",
+    RESOLVED: "已关闭"
+  }[status] ?? status;
+}
 
-    if (event.statusCode >= 500) {
-      kinds.push("server");
-    }
+function exceptionTypeLabel(type: string) {
+  return {
+    AUTH_FAILURE: "鉴权失败",
+    RATE_LIMITED: "限流触发",
+    BILLING_FAILED: "账单失败",
+    JOB_FAILED: "任务失败",
+    USAGE_ANOMALY: "用量异常",
+    SYSTEM_ERROR: "系统异常"
+  }[type] ?? type;
+}
 
-    if (event.apiKey?.status === "REVOKED") {
-      kinds.push("revokedKey");
-    }
-
-    return kinds.map((kind) => ({ kind, event }));
-  });
+function severityClass(severity: string) {
+  return severity === "CRITICAL" || severity === "HIGH" ? "status-pill danger" : severity === "MEDIUM" ? "status-pill warning" : "status-pill muted";
 }
 
 export function BillingRunsPage() {
@@ -133,14 +174,19 @@ export function BillingRunsPage() {
   const [tenantFilter, setTenantFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadLaunchLoopData()
+  async function refreshData() {
+    return loadLaunchLoopData()
       .then((nextData) => {
         setError(null);
         setData(nextData);
       })
       .catch(() => setError("账单生成数据加载失败"));
+  }
+
+  useEffect(() => {
+    refreshData();
   }, []);
 
   const rows = useMemo(() => {
@@ -154,23 +200,36 @@ export function BillingRunsPage() {
         const overageUnits = invoice?.overageUnits ?? Math.max(usage.totalCostUnits - includedUnits, 0);
         const currency = invoice?.billingCurrency ?? tenant.plan?.billingCurrency ?? "CNY";
         const estimatedAmount = invoice?.totalAmount ?? (tenant.plan?.monthlyBaseFee ?? 0) + overageUnits * (tenant.plan?.overageUnitPrice ?? 0);
-        const status = invoice?.status ?? "PENDING";
+        const run = data.billingRuns.find((item) => item.tenant?.id === tenant.id && item.billingPeriod === period);
+        const status = run?.status ?? "PENDING";
 
-        return { tenant, usage, invoice, overageUnits, currency, estimatedAmount, status };
+        return { tenant, usage, invoice, run, overageUnits, currency, estimatedAmount, status };
       })
       .filter((row) => (keyword ? row.tenant.name.toLowerCase().includes(keyword) : true))
       .filter((row) => (statusFilter ? row.status === statusFilter : true));
-  }, [data.dailyUsage, data.invoices, data.tenants, period, statusFilter, tenantFilter]);
+  }, [data.billingRuns, data.dailyUsage, data.invoices, data.tenants, period, statusFilter, tenantFilter]);
 
   const metrics = useMemo(
     () => ({
       pending: rows.filter((row) => row.status === "PENDING").length,
-      draft: rows.filter((row) => row.status === "DRAFT").length,
-      issued: rows.filter((row) => row.status === "ISSUED").length,
-      failed: 0
+      running: rows.filter((row) => row.status === "RUNNING").length,
+      success: rows.filter((row) => row.status === "SUCCESS").length,
+      failed: rows.filter((row) => row.status === "FAILED").length
     }),
     [rows]
   );
+
+  async function handleCreateRun(tenantId: string) {
+    await createBillingRun({ tenantId, billingPeriod: period, status: "PENDING" });
+    setMessage("已创建账单生成运行记录");
+    await refreshData();
+  }
+
+  async function handleRetryRun(runId: string) {
+    await retryBillingRun(runId);
+    setMessage("已重置账单运行记录");
+    await refreshData();
+  }
 
   return (
     <section className="page-section">
@@ -179,21 +238,22 @@ export function BillingRunsPage() {
         <h1>账单生成中心</h1>
       </div>
       {error ? <div className="empty-state">{error}</div> : null}
+      {message ? <div className="empty-state">{message}</div> : null}
       <div className="metric-grid">
         <article className="metric-card accent-amber"><span><TimerReset size={18} aria-hidden="true" />待生成</span><strong>{metrics.pending}</strong></article>
-        <article className="metric-card accent-blue"><span><ReceiptText size={18} aria-hidden="true" />草稿</span><strong>{metrics.draft}</strong></article>
-        <article className="metric-card accent-teal"><span><ReceiptText size={18} aria-hidden="true" />已出账</span><strong>{metrics.issued}</strong></article>
+        <article className="metric-card accent-blue"><span><ReceiptText size={18} aria-hidden="true" />运行中</span><strong>{metrics.running}</strong></article>
+        <article className="metric-card accent-teal"><span><ReceiptText size={18} aria-hidden="true" />成功</span><strong>{metrics.success}</strong></article>
         <article className="metric-card accent-rose"><span><AlertTriangle size={18} aria-hidden="true" />失败</span><strong>{metrics.failed}</strong></article>
       </div>
       <div className="table-panel">
         <div className="table-header">
           <div>
             <h2>生成批次</h2>
-            <p>当前只展示生成前检查和账单跳转；后端生成接口完成前不会启用生成动作。</p>
+            <p>生成按钮先创建运行记录，真实账单幂等生成后续接入。</p>
           </div>
-          <button type="button" disabled title="账单生成接口待实现">
+          <button type="button" onClick={() => rows[0] ? handleCreateRun(rows[0].tenant.id) : undefined}>
             <PlayCircle size={16} aria-hidden="true" />
-            生成账单
+            记录生成
           </button>
         </div>
         <div className="filter-panel compact-filter">
@@ -205,12 +265,11 @@ export function BillingRunsPage() {
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="按生成状态筛选">
             <option value="">全部状态</option>
             <option value="PENDING">待生成</option>
-            <option value="DRAFT">草稿</option>
-            <option value="ISSUED">已出账</option>
-            <option value="PAID">已支付</option>
-            <option value="VOID">已作废</option>
+            <option value="RUNNING">运行中</option>
+            <option value="SUCCESS">成功</option>
+            <option value="FAILED">失败</option>
           </select>
-          <span className="inline-hint">账单生成接口待实现</span>
+          <span className="inline-hint">轻实现：只记录运行状态</span>
         </div>
         <table>
           <thead>
@@ -234,17 +293,21 @@ export function BillingRunsPage() {
                 <td>{row.overageUnits}</td>
                 <td>{formatMoney(row.estimatedAmount, row.currency)}</td>
                 <td>
-                  {row.invoice ? <span className={invoiceStatusClass(row.invoice.status)}>{formatInvoiceStatus(row.invoice.status)}</span> : <span className="status-pill muted">待生成</span>}
+                  <span className={billingRunStatusClass(row.status)}>{billingRunStatusLabel(row.status)}</span>
                 </td>
-                <td>{formatDateTime(row.invoice?.updatedAt ?? row.invoice?.createdAt)}</td>
+                <td>{formatDateTime(row.run?.updatedAt ?? row.run?.createdAt)}</td>
                 <td>
                   {row.invoice ? (
                     <Link className="secondary-button" to={`/invoices/${row.invoice.id}`}>
                       查看账单
                     </Link>
+                  ) : row.run?.status === "FAILED" ? (
+                    <button type="button" className="secondary-button" onClick={() => handleRetryRun(row.run?.id ?? "")}>
+                      重试
+                    </button>
                   ) : (
-                    <button type="button" className="secondary-button" disabled>
-                      生成
+                    <button type="button" className="secondary-button" onClick={() => handleCreateRun(row.tenant.id)}>
+                      记录生成
                     </button>
                   )}
                 </td>
@@ -397,35 +460,44 @@ export function ExceptionsPage() {
   const [kindFilter, setKindFilter] = useState("");
   const [tenantFilter, setTenantFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadLaunchLoopData()
+  async function refreshData() {
+    return loadLaunchLoopData()
       .then((nextData) => {
         setError(null);
         setData(nextData);
       })
       .catch(() => setError("异常数据加载失败"));
+  }
+
+  useEffect(() => {
+    refreshData();
   }, []);
 
   const exceptions = useMemo(() => {
     const tenant = tenantFilter.trim().toLowerCase();
 
-    return classifyExceptions(data.usageEvents)
-      .filter((item) => (kindFilter ? item.kind === kindFilter : true))
-      .filter((item) => (tenant ? item.event.tenant?.name.toLowerCase().includes(tenant) : true));
-  }, [data.usageEvents, kindFilter, tenantFilter]);
+    return data.exceptionCases
+      .filter((item) => (kindFilter ? item.type === kindFilter : true))
+      .filter((item) => (tenant ? item.tenant?.name.toLowerCase().includes(tenant) : true));
+  }, [data.exceptionCases, kindFilter, tenantFilter]);
 
   const counts = useMemo(() => {
-    const allExceptions = classifyExceptions(data.usageEvents);
-
     return {
-      auth: allExceptions.filter((item) => item.kind === "auth").length,
-      rateLimit: allExceptions.filter((item) => item.kind === "rateLimit").length,
-      server: allExceptions.filter((item) => item.kind === "server").length,
-      revokedKey: allExceptions.filter((item) => item.kind === "revokedKey").length,
-      billing: 0
+      open: data.exceptionCases.filter((item) => item.status === "OPEN").length,
+      high: data.exceptionCases.filter((item) => item.severity === "HIGH" || item.severity === "CRITICAL").length,
+      acknowledged: data.exceptionCases.filter((item) => item.status === "ACKNOWLEDGED").length,
+      resolved: data.exceptionCases.filter((item) => item.status === "RESOLVED").length,
+      billing: data.exceptionCases.filter((item) => item.type === "BILLING_FAILED").length
     };
-  }, [data.usageEvents]);
+  }, [data.exceptionCases]);
+
+  async function handleExceptionStatus(id: string, status: ExceptionCase["status"]) {
+    await updateException(id, { status });
+    setMessage(status === "RESOLVED" ? "异常已关闭" : "异常状态已更新");
+    await refreshData();
+  }
 
   return (
     <section className="page-section">
@@ -434,27 +506,30 @@ export function ExceptionsPage() {
         <h1>异常处理中心</h1>
       </div>
       {error ? <div className="empty-state">{error}</div> : null}
+      {message ? <div className="empty-state">{message}</div> : null}
       <div className="metric-grid">
-        <article className="metric-card accent-rose"><span><ShieldAlert size={18} aria-hidden="true" />鉴权失败数</span><strong>{counts.auth}</strong></article>
-        <article className="metric-card accent-amber"><span><Gauge size={18} aria-hidden="true" />限流触发数</span><strong>{counts.rateLimit}</strong></article>
-        <article className="metric-card accent-rose"><span><FileWarning size={18} aria-hidden="true" />服务异常数</span><strong>{counts.server}</strong></article>
-        <article className="metric-card accent-indigo"><span><Ban size={18} aria-hidden="true" />撤销 Key 调用数</span><strong>{counts.revokedKey}</strong></article>
+        <article className="metric-card accent-rose"><span><ShieldAlert size={18} aria-hidden="true" />待处理</span><strong>{counts.open}</strong></article>
+        <article className="metric-card accent-amber"><span><Gauge size={18} aria-hidden="true" />高优先级</span><strong>{counts.high}</strong></article>
+        <article className="metric-card accent-indigo"><span><FileWarning size={18} aria-hidden="true" />处理中</span><strong>{counts.acknowledged}</strong></article>
+        <article className="metric-card accent-teal"><span><Ban size={18} aria-hidden="true" />已关闭</span><strong>{counts.resolved}</strong></article>
         <article className="metric-card accent-blue"><span><ReceiptText size={18} aria-hidden="true" />账单失败</span><strong>{counts.billing}</strong></article>
       </div>
       <div className="table-panel">
         <div className="table-header">
           <div>
             <h2>异常列表</h2>
-            <p>从请求日志和 API Key 状态推导，保留跳转日志入口用于进一步排查。</p>
+            <p>异常已沉淀为可处理事项，真实异常产生链路后续接入。</p>
           </div>
         </div>
         <div className="filter-panel compact-filter">
           <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)} aria-label="按异常类型筛选">
             <option value="">全部类型</option>
-            <option value="auth">鉴权失败</option>
-            <option value="rateLimit">限流触发</option>
-            <option value="server">服务异常</option>
-            <option value="revokedKey">撤销 Key 调用</option>
+            <option value="AUTH_FAILURE">鉴权失败</option>
+            <option value="RATE_LIMITED">限流触发</option>
+            <option value="BILLING_FAILED">账单失败</option>
+            <option value="JOB_FAILED">任务失败</option>
+            <option value="USAGE_ANOMALY">用量异常</option>
+            <option value="SYSTEM_ERROR">系统异常</option>
           </select>
           <input value={tenantFilter} onChange={(event) => setTenantFilter(event.target.value)} placeholder="按租户名称筛选" />
         </div>
@@ -472,25 +547,26 @@ export function ExceptionsPage() {
             </tr>
           </thead>
           <tbody>
-            {exceptions.map((item) => {
-              const meta = exceptionMeta(item.kind);
-              const Icon = meta.icon;
-
-              return (
-                <tr key={`${item.kind}-${item.event.id}`}>
-                  <td><span className={meta.level === "高" ? "status-pill danger" : "status-pill warning"}>{meta.level}</span></td>
-                  <td>
-                    <span className="exception-kind"><Icon size={15} aria-hidden="true" />{meta.label}</span>
-                  </td>
-                  <td>{item.event.tenant?.name ?? "-"}</td>
-                  <td><code>{item.event.requestId}</code></td>
-                  <td>{item.event.endpoint} 返回 {item.event.statusCode}</td>
-                  <td>{formatDateTime(item.event.occurredAt)}</td>
-                  <td><span className="status-pill muted">待处理</span></td>
-                  <td><Link className="secondary-button" to="/logs/usage">查看日志</Link></td>
-                </tr>
-              );
-            })}
+            {exceptions.map((item) => (
+              <tr key={item.id}>
+                <td><span className={severityClass(item.severity)}>{item.severity}</span></td>
+                <td>{exceptionTypeLabel(item.type)}</td>
+                <td>{item.tenant?.name ?? "-"}</td>
+                <td><code>{item.resourceId ?? item.resourceType ?? "-"}</code></td>
+                <td>{item.summary}</td>
+                <td>{formatDateTime(item.openedAt)}</td>
+                <td><span className={exceptionStatusClass(item.status)}>{exceptionStatusLabel(item.status)}</span></td>
+                <td>
+                  {item.status === "OPEN" ? (
+                    <button type="button" className="secondary-button" onClick={() => handleExceptionStatus(item.id, "ACKNOWLEDGED")}>处理</button>
+                  ) : item.status === "ACKNOWLEDGED" ? (
+                    <button type="button" className="secondary-button" onClick={() => handleExceptionStatus(item.id, "RESOLVED")}>关闭</button>
+                  ) : (
+                    <button type="button" className="secondary-button" onClick={() => handleExceptionStatus(item.id, "OPEN")}>重开</button>
+                  )}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

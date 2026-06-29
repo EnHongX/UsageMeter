@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, BookOpenText, Building2, ChevronDown, ChevronRight, CreditCard, FileClock, Gauge, KeyRound, LayoutDashboard, LockKeyhole, LogOut, ReceiptText, SearchCheck, Settings, SlidersHorizontal, TrendingUp, Zap } from "lucide-react";
+import { Activity, AlertTriangle, BellRing, BookOpenText, Building2, ChevronDown, ChevronRight, CreditCard, FileClock, Gauge, KeyRound, LayoutDashboard, LockKeyhole, LogOut, ReceiptText, SearchCheck, ServerCog, Settings, SlidersHorizontal, TrendingUp, Zap } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
@@ -22,6 +22,12 @@ const settingNavItems = [
   { to: "/settings/password", label: "修改密码", icon: LockKeyhole }
 ];
 
+const operationNavItems = [
+  { to: "/rate-limits", label: "限流策略", icon: Zap },
+  { to: "/notifications", label: "通知配置", icon: BellRing },
+  { to: "/system/jobs", label: "系统任务", icon: ServerCog }
+];
+
 const logNavItems = [
   { to: "/logs/audit", label: "操作审计", icon: SearchCheck },
   { to: "/logs/usage", label: "请求日志", icon: Activity },
@@ -33,8 +39,10 @@ export function AppShell() {
   const location = useLocation();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [operationsOpen, setOperationsOpen] = useState(false);
   const showSettingsNav = settingsOpen || location.pathname.startsWith("/settings");
   const showLogsNav = logsOpen || location.pathname.startsWith("/logs");
+  const showOperationsNav = operationsOpen || location.pathname.startsWith("/rate-limits") || location.pathname.startsWith("/notifications") || location.pathname.startsWith("/system");
 
   return (
     <div className="app-shell">
@@ -57,6 +65,30 @@ export function AppShell() {
               </NavLink>
             );
           })}
+          <button
+            type="button"
+            className={showOperationsNav ? "nav-link nav-group-button active" : "nav-link nav-group-button"}
+            aria-expanded={showOperationsNav}
+            onClick={() => setOperationsOpen((open) => !open)}
+          >
+            <SlidersHorizontal size={18} aria-hidden="true" />
+            <span>运营配置</span>
+            {showOperationsNav ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+          </button>
+          {showOperationsNav ? (
+            <div className="sub-nav" aria-label="运营配置子导航">
+              {operationNavItems.map((subItem) => {
+                const SubIcon = subItem.icon;
+
+                return (
+                  <NavLink key={subItem.to} to={subItem.to} className={({ isActive }) => (isActive ? "sub-nav-link active" : "sub-nav-link")}>
+                    <SubIcon size={15} aria-hidden="true" />
+                    <span>{subItem.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          ) : null}
           <button
             type="button"
             className={location.pathname.startsWith("/logs") ? "nav-link nav-group-button active" : "nav-link nav-group-button"}
