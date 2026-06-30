@@ -1,8 +1,8 @@
-import { Activity, BarChart3, Building2, CreditCard, GaugeCircle, KeyRound, LayoutDashboard, TrendingUp } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, Building2, CreditCard, GaugeCircle, KeyRound, LayoutDashboard, ServerCog, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { EChartsOption } from "echarts";
-import { listApiKeys, listDailyUsage, listInvoices, listTenants } from "../api/client";
-import type { ApiKey, Invoice, UsageDailyAggregate } from "../api/client";
+import { listApiKeys, listBillingRuns, listDailyUsage, listExceptions, listInvoices, listSystemJobs, listTenants } from "../api/client";
+import type { ApiKey, BillingRun, ExceptionCase, Invoice, SystemJobRun, UsageDailyAggregate } from "../api/client";
 import { EChart } from "../components/EChart";
 import { formatMoney } from "../utils/money";
 import type { BillingCurrency } from "../utils/money";
@@ -14,6 +14,9 @@ type DashboardData = {
   apiKeys: ApiKey[];
   dailyUsage: UsageDailyAggregate[];
   invoices: Invoice[];
+  billingRuns: BillingRun[];
+  exceptions: ExceptionCase[];
+  systemJobs: SystemJobRun[];
 };
 
 type ChartPoint = {
@@ -219,18 +222,24 @@ export function DashboardPage() {
     tenants: 0,
     apiKeys: [],
     dailyUsage: [],
-    invoices: []
+    invoices: [],
+    billingRuns: [],
+    exceptions: [],
+    systemJobs: []
   });
 
   useEffect(() => {
-    Promise.all([listTenants(), listApiKeys(), listDailyUsage(), listInvoices()])
-      .then(([tenants, apiKeys, dailyUsage, invoices]) => {
+    Promise.all([listTenants(), listApiKeys(), listDailyUsage(), listInvoices(), listBillingRuns(), listExceptions(), listSystemJobs()])
+      .then(([tenants, apiKeys, dailyUsage, invoices, billingRuns, exceptions, systemJobs]) => {
         setError(null);
         setData({
           tenants: tenants.length,
           apiKeys,
           dailyUsage,
-          invoices
+          invoices,
+          billingRuns,
+          exceptions,
+          systemJobs
         });
       })
       .catch(() => {
@@ -239,7 +248,10 @@ export function DashboardPage() {
           tenants: 0,
           apiKeys: [],
           dailyUsage: [],
-          invoices: []
+          invoices: [],
+          billingRuns: [],
+          exceptions: [],
+          systemJobs: []
         });
       });
   }, []);
@@ -347,6 +359,27 @@ export function DashboardPage() {
             美元收益
           </span>
           <strong className="money-pair">{formatMoney(scoped.usdRevenue, "USD")}</strong>
+        </article>
+        <article className="metric-card accent-rose">
+          <span>
+            <AlertTriangle size={18} aria-hidden="true" />
+            待处理异常
+          </span>
+          <strong>{data.exceptions.filter((item) => item.status !== "RESOLVED").length}</strong>
+        </article>
+        <article className="metric-card accent-slate">
+          <span>
+            <ServerCog size={18} aria-hidden="true" />
+            失败任务
+          </span>
+          <strong>{data.systemJobs.filter((job) => job.status === "FAILED").length}</strong>
+        </article>
+        <article className="metric-card accent-amber">
+          <span>
+            <CreditCard size={18} aria-hidden="true" />
+            账单失败
+          </span>
+          <strong>{data.billingRuns.filter((run) => run.status === "FAILED").length}</strong>
         </article>
       </div>
 

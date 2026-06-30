@@ -93,6 +93,10 @@ export function ApiKeysPage() {
 
   return (
     <section className="page-section">
+      <div className="page-heading">
+        <p className="eyebrow">业务管理</p>
+        <h1>API Key 管理</h1>
+      </div>
       {error ? <div className="empty-state">{error}</div> : null}
       {createdSecret ? (
         <div className="secret-panel">

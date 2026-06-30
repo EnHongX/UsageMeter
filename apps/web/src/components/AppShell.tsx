@@ -1,13 +1,17 @@
-import { Activity, AlertTriangle, BookOpenText, Building2, ChevronDown, ChevronRight, CreditCard, FileClock, Gauge, KeyRound, LayoutDashboard, LockKeyhole, LogOut, ReceiptText, SearchCheck, Settings, SlidersHorizontal, TrendingUp, Zap } from "lucide-react";
+import { Activity, AlertTriangle, BellRing, BookOpenText, Building2, ChevronDown, ChevronRight, CreditCard, FileClock, Gauge, KeyRound, LayoutDashboard, LockKeyhole, LogOut, ReceiptText, SearchCheck, ServerCog, Settings, SlidersHorizontal, TrendingUp, Zap } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
-const navItems = [
-  { to: "/", label: "仪表盘", icon: LayoutDashboard },
+const dashboardNavItem = { to: "/", label: "仪表盘", icon: LayoutDashboard };
+
+const managementNavItems = [
   { to: "/tenants", label: "租户", icon: Building2 },
   { to: "/plans", label: "套餐", icon: CreditCard },
-  { to: "/api-keys", label: "API Key 管理", icon: KeyRound },
+  { to: "/api-keys", label: "API Key 管理", icon: KeyRound }
+];
+
+const meteringNavItems = [
   { to: "/usage", label: "用量", icon: Activity },
   { to: "/limits", label: "额度监控", icon: Zap },
   { to: "/revenue", label: "收益", icon: TrendingUp },
@@ -22,19 +26,35 @@ const settingNavItems = [
   { to: "/settings/password", label: "修改密码", icon: LockKeyhole }
 ];
 
+const operationNavItems = [
+  { to: "/rate-limits", label: "限流策略", icon: Zap },
+  { to: "/notifications", label: "通知配置", icon: BellRing },
+  { to: "/system/jobs", label: "系统任务", icon: ServerCog }
+];
+
 const logNavItems = [
   { to: "/logs/audit", label: "操作审计", icon: SearchCheck },
   { to: "/logs/usage", label: "请求日志", icon: Activity },
   { to: "/logs/billing", label: "账单日志", icon: ReceiptText }
 ];
 
+function isGroupActive(pathname: string, items: Array<{ to: string }>) {
+  return items.some((item) => pathname === item.to || pathname.startsWith(`${item.to}/`));
+}
+
 export function AppShell() {
   const { signOut, user } = useAuth();
   const location = useLocation();
+  const [managementOpen, setManagementOpen] = useState(false);
+  const [meteringOpen, setMeteringOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [operationsOpen, setOperationsOpen] = useState(false);
+  const showManagementNav = managementOpen || isGroupActive(location.pathname, managementNavItems);
+  const showMeteringNav = meteringOpen || isGroupActive(location.pathname, meteringNavItems);
   const showSettingsNav = settingsOpen || location.pathname.startsWith("/settings");
   const showLogsNav = logsOpen || location.pathname.startsWith("/logs");
+  const showOperationsNav = operationsOpen || location.pathname.startsWith("/rate-limits") || location.pathname.startsWith("/notifications") || location.pathname.startsWith("/system");
 
   return (
     <div className="app-shell">
@@ -47,16 +67,82 @@ export function AppShell() {
           </span>
         </div>
         <nav className="nav-list" aria-label="主导航">
-          {navItems.map((item) => {
-            const Icon = item.icon;
+          <NavLink to={dashboardNavItem.to} className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}>
+            <LayoutDashboard size={18} aria-hidden="true" />
+            <span>{dashboardNavItem.label}</span>
+          </NavLink>
+          <button
+            type="button"
+            className={showManagementNav ? "nav-link nav-group-button active" : "nav-link nav-group-button"}
+            aria-expanded={showManagementNav}
+            onClick={() => setManagementOpen((open) => !open)}
+          >
+            <Building2 size={18} aria-hidden="true" />
+            <span>业务管理</span>
+            {showManagementNav ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+          </button>
+          {showManagementNav ? (
+            <div className="sub-nav" aria-label="业务管理子导航">
+              {managementNavItems.map((subItem) => {
+                const SubIcon = subItem.icon;
 
-            return (
-              <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}>
-                <Icon size={18} aria-hidden="true" />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
+                return (
+                  <NavLink key={subItem.to} to={subItem.to} className={({ isActive }) => (isActive ? "sub-nav-link active" : "sub-nav-link")}>
+                    <SubIcon size={15} aria-hidden="true" />
+                    <span>{subItem.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className={showMeteringNav ? "nav-link nav-group-button active" : "nav-link nav-group-button"}
+            aria-expanded={showMeteringNav}
+            onClick={() => setMeteringOpen((open) => !open)}
+          >
+            <Activity size={18} aria-hidden="true" />
+            <span>计量运营</span>
+            {showMeteringNav ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+          </button>
+          {showMeteringNav ? (
+            <div className="sub-nav" aria-label="计量运营子导航">
+              {meteringNavItems.map((subItem) => {
+                const SubIcon = subItem.icon;
+
+                return (
+                  <NavLink key={subItem.to} to={subItem.to} className={({ isActive }) => (isActive ? "sub-nav-link active" : "sub-nav-link")}>
+                    <SubIcon size={15} aria-hidden="true" />
+                    <span>{subItem.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className={showOperationsNav ? "nav-link nav-group-button active" : "nav-link nav-group-button"}
+            aria-expanded={showOperationsNav}
+            onClick={() => setOperationsOpen((open) => !open)}
+          >
+            <SlidersHorizontal size={18} aria-hidden="true" />
+            <span>运营配置</span>
+            {showOperationsNav ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+          </button>
+          {showOperationsNav ? (
+            <div className="sub-nav" aria-label="运营配置子导航">
+              {operationNavItems.map((subItem) => {
+                const SubIcon = subItem.icon;
+
+                return (
+                  <NavLink key={subItem.to} to={subItem.to} className={({ isActive }) => (isActive ? "sub-nav-link active" : "sub-nav-link")}>
+                    <SubIcon size={15} aria-hidden="true" />
+                    <span>{subItem.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          ) : null}
           <button
             type="button"
             className={location.pathname.startsWith("/logs") ? "nav-link nav-group-button active" : "nav-link nav-group-button"}

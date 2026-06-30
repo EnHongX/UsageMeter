@@ -192,6 +192,162 @@ const apiResponses: Record<string, unknown> = {
       }
     ]
   },
+  "http://localhost:7612/billing/runs": {
+    data: [
+      {
+        id: "run_1",
+        tenantId: "tenant_acme",
+        invoiceId: "invoice_1",
+        billingPeriod: "2026-06",
+        status: "FAILED",
+        startedAt: todayIso,
+        finishedAt: todayIso,
+        failureReason: "用量聚合数据缺失",
+        createdAt: todayIso,
+        updatedAt: todayIso,
+        tenant: { id: "tenant_acme", name: "星河智能科技", status: "ACTIVE" },
+        invoice: {
+          id: "invoice_1",
+          billingPeriod: "2026-06",
+          status: "DRAFT",
+          totalAmount: 10100,
+          billingCurrency: "CNY"
+        }
+      }
+    ]
+  },
+  "http://localhost:7612/rate-limits/policies": {
+    data: [
+      {
+        id: "policy_1",
+        scope: "TENANT",
+        tenantId: "tenant_acme",
+        planId: null,
+        dailyUnitLimit: 3000,
+        warningThresholdPercent: 80,
+        status: "ACTIVE",
+        updatedAt: todayIso,
+        tenant: { id: "tenant_acme", name: "星河智能科技", status: "ACTIVE" },
+        plan: null
+      },
+      {
+        id: "policy_2",
+        scope: "PLAN",
+        tenantId: null,
+        planId: "plan_pro",
+        dailyUnitLimit: 1000,
+        warningThresholdPercent: 75,
+        status: "DISABLED",
+        updatedAt: todayIso,
+        tenant: null,
+        plan: { id: "plan_pro", name: "Growth API 成长版", dailyUnitLimit: 1000 }
+      }
+    ]
+  },
+  "http://localhost:7612/rate-limits/events": {
+    data: [
+      {
+        id: "rate_event_1",
+        requestId: "rl_202606_0001",
+        endpoint: "/api/v1/messages",
+        costUnits: 5,
+        limitUnits: 1000,
+        usedUnits: 1120,
+        reason: "daily_limit_exceeded",
+        occurredAt: todayIso,
+        tenant: { id: "tenant_acme", name: "星河智能科技", status: "ACTIVE" }
+      }
+    ]
+  },
+  "http://localhost:7612/exceptions": {
+    data: [
+      {
+        id: "exception_1",
+        tenantId: "tenant_acme",
+        type: "BILLING_FAILED",
+        severity: "HIGH",
+        status: "OPEN",
+        source: "billing_worker",
+        resourceType: "billing_run",
+        resourceId: "run_1",
+        summary: "账单生成失败",
+        details: "用量聚合数据缺失",
+        assignee: null,
+        openedAt: todayIso,
+        resolvedAt: null,
+        tenant: { id: "tenant_acme", name: "星河智能科技", status: "ACTIVE" },
+        notes: []
+      },
+      {
+        id: "exception_2",
+        tenantId: "tenant_gamma",
+        type: "RATE_LIMITED",
+        severity: "MEDIUM",
+        status: "ACKNOWLEDGED",
+        source: "api_gateway",
+        resourceType: "request",
+        resourceId: "req_rate_limited",
+        summary: "租户触发限流",
+        details: null,
+        assignee: "平台管理员",
+        openedAt: todayIso,
+        resolvedAt: null,
+        tenant: { id: "tenant_gamma", name: "北辰数据平台", status: "ACTIVE" },
+        notes: []
+      }
+    ]
+  },
+  "http://localhost:7612/notifications/channels": {
+    data: [
+      {
+        id: "channel_1",
+        name: "运营告警 Webhook",
+        type: "WEBHOOK",
+        target: "https://example.com/hook",
+        status: "ACTIVE",
+        lastTestedAt: todayIso,
+        rules: []
+      }
+    ]
+  },
+  "http://localhost:7612/notifications/rules": {
+    data: [
+      {
+        id: "rule_1",
+        name: "账单失败通知",
+        eventType: "BILLING_FAILED",
+        severity: "HIGH",
+        channelId: "channel_1",
+        threshold: null,
+        status: "ACTIVE",
+        channel: {
+          id: "channel_1",
+          name: "运营告警 Webhook",
+          type: "WEBHOOK",
+          target: "https://example.com/hook",
+          status: "ACTIVE",
+          lastTestedAt: todayIso
+        }
+      }
+    ]
+  },
+  "http://localhost:7612/system/jobs": {
+    data: [
+      {
+        id: "job_1",
+        jobType: "BILLING_GENERATION",
+        status: "FAILED",
+        triggeredBy: "manual",
+        startedAt: todayIso,
+        finishedAt: todayIso,
+        durationMs: 45000,
+        input: { billingPeriod: "2026-06" },
+        output: { createdInvoices: 0 },
+        failureReason: "部分租户缺少聚合数据",
+        createdAt: todayIso
+      }
+    ]
+  },
   "http://localhost:7612/audit-logs": {
     data: [
       {
@@ -208,6 +364,12 @@ const apiResponses: Record<string, unknown> = {
         }
       }
     ]
+  },
+  "http://localhost:7612/settings": {
+    systemName: "UsageMeter",
+    defaultPageSize: 10,
+    allowRegistration: true,
+    billingCurrency: "USD"
   }
 };
 
@@ -263,6 +425,29 @@ describe("App", () => {
 
     expect(await screen.findByText("星河智能科技")).toBeInTheDocument();
     expect(screen.getAllByText("Growth API 成长版").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("uses the standard page heading on business pages", async () => {
+    const routes = [
+      { path: "/tenants", title: "租户" },
+      { path: "/plans", title: "套餐" },
+      { path: "/api-keys", title: "API Key 管理" },
+      { path: "/usage", title: "用量" },
+      { path: "/revenue", title: "收益" },
+      { path: "/invoices", title: "账单" },
+      { path: "/integration", title: "接入文档" },
+      { path: "/settings/password", title: "修改密码" },
+      { path: "/logs/audit", title: "操作审计" }
+    ];
+
+    for (const route of routes) {
+      cleanup();
+      window.history.pushState({}, "", route.path);
+      render(<App />);
+
+      const heading = await screen.findByRole("heading", { name: route.title, level: 1 });
+      expect(heading.closest(".page-heading")).toBeInTheDocument();
+    }
   });
 
   it("shows tenant related data on tenant detail", async () => {
@@ -397,18 +582,18 @@ describe("App", () => {
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
-  it("shows billing generation center with disabled generation actions", async () => {
+  it("shows billing generation center with lightweight run records", async () => {
     window.history.pushState({}, "", "/billing-runs");
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "账单生成中心" })).toBeInTheDocument();
-    expect(screen.getByText("账单生成")).toBeInTheDocument();
+    expect(screen.getAllByText("账单生成").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByLabelText("按账期筛选")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("按租户名称筛选")).toBeInTheDocument();
     expect(screen.getAllByText("待生成").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("草稿").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByRole("button", { name: "生成账单" })).toBeDisabled();
-    expect(screen.getByText("账单生成接口待实现")).toBeInTheDocument();
+    expect(screen.getAllByText("失败").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByRole("button", { name: "记录生成" }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("轻实现：只记录运行状态")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看账单" })).toHaveAttribute("href", "/invoices/invoice_1");
   });
 
@@ -426,19 +611,42 @@ describe("App", () => {
     expect(screen.getByText("req_rate_limited")).toBeInTheDocument();
   });
 
-  it("shows exception center derived from usage events", async () => {
+  it("shows exception center from exception cases", async () => {
     window.history.pushState({}, "", "/exceptions");
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "异常处理中心" })).toBeInTheDocument();
     expect(screen.getByText("异常中心")).toBeInTheDocument();
-    expect(screen.getAllByText("鉴权失败").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("账单失败").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("限流触发").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("服务异常").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("撤销 Key 调用").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("req_auth_failed").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("req_server_error").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByRole("link", { name: "查看日志" }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("账单生成失败")).toBeInTheDocument();
+    expect(screen.getByText("租户触发限流")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "处理" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "关闭" })).toBeInTheDocument();
+  });
+
+  it("shows operations configuration pages", async () => {
+    window.history.pushState({}, "", "/rate-limits");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "限流策略" })).toBeInTheDocument();
+    expect(screen.getAllByText("运营配置").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("租户覆盖").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("rl_202606_0001")).toBeInTheDocument();
+
+    cleanup();
+    window.history.pushState({}, "", "/notifications");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "通知配置" })).toBeInTheDocument();
+    expect(screen.getAllByText("运营告警 Webhook").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("账单失败通知")).toBeInTheDocument();
+
+    cleanup();
+    window.history.pushState({}, "", "/system/jobs");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "系统任务" })).toBeInTheDocument();
+    expect(screen.getAllByText("账单生成").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("部分租户缺少聚合数据")).toBeInTheDocument();
   });
 
   it("loads audit logs with filters and sorting", async () => {
@@ -467,6 +675,16 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "账单日志" })).toBeInTheDocument();
     expect(screen.getByLabelText("按账期筛选")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "总金额 ↕" })).toBeInTheDocument();
+  });
+
+  it("loads system settings instead of rendering a blank page", async () => {
+    window.history.pushState({}, "", "/settings/system");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "系统参数" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("UsageMeter")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("10")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存设置" })).toBeInTheDocument();
   });
 
   it("loads revenue from the backend", async () => {

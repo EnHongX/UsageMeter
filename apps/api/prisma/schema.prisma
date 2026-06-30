@@ -20,6 +20,10 @@ model Tenant {
   usageEvents UsageEvent[]
   aggregates  UsageDailyAggregate[]
   invoices    Invoice[]
+  rateLimitPolicies RateLimitPolicy[]
+  rateLimitEvents   RateLimitEvent[]
+  billingRuns       BillingRun[]
+  exceptionCases    ExceptionCase[]
 }
 
 model Plan {
@@ -34,6 +38,7 @@ model Plan {
   updatedAt        DateTime @updatedAt
 
   tenants Tenant[]
+  rateLimitPolicies RateLimitPolicy[]
 }
 
 model ApiKey {
@@ -48,6 +53,7 @@ model ApiKey {
 
   tenant      Tenant       @relation(fields: [tenantId], references: [id])
   usageEvents UsageEvent[]
+  rateLimitEvents RateLimitEvent[]
 }
 
 model UsageEvent {
@@ -97,6 +103,7 @@ model Invoice {
 
   tenant    Tenant            @relation(fields: [tenantId], references: [id])
   lineItems InvoiceLineItem[]
+  billingRuns BillingRun[]
 
   @@unique([tenantId, billingPeriod])
 }
@@ -124,6 +131,7 @@ model User {
 
   sessions Session[]
   auditLogs AuditLog[]
+  exceptionNotes ExceptionNote[]
 }
 
 model Session {
@@ -160,6 +168,150 @@ model AuditLog {
   @@index([resource, createdAt])
 }
 
+model RateLimitPolicy {
+  id                      String                @id @default(cuid())
+  scope                   RateLimitPolicyScope
+  tenantId                String?
+  planId                  String?
+  dailyUnitLimit          Int
+  warningThresholdPercent Int                   @default(80)
+  status                  OperationalStatus     @default(ACTIVE)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  plan   Plan?   @relation(fields: [planId], references: [id])
+  events RateLimitEvent[]
+
+  @@unique([tenantId])
+  @@unique([planId])
+  @@index([scope, status])
+}
+
+model RateLimitEvent {
+  id         String   @id @default(cuid())
+  tenantId   String
+  apiKeyId   String?
+  policyId   String?
+  requestId  String
+  endpoint   String
+  costUnits  Int
+  limitUnits Int
+  usedUnits  Int
+  reason     String
+  occurredAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  apiKey ApiKey? @relation(fields: [apiKeyId], references: [id])
+  policy RateLimitPolicy? @relation(fields: [policyId], references: [id])
+
+  @@index([tenantId, occurredAt])
+}
+
+model BillingRun {
+  id            String           @id @default(cuid())
+  tenantId      String
+  invoiceId     String?
+  billingPeriod String
+  status        JobRunStatus     @default(PENDING)
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  failureReason String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id])
+  invoice Invoice? @relation(fields: [invoiceId], references: [id])
+
+  @@index([tenantId, billingPeriod])
+  @@index([status, createdAt])
+}
+
+model ExceptionCase {
+  id           String              @id @default(cuid())
+  tenantId     String?
+  type         ExceptionType
+  severity     ExceptionSeverity
+  status       ExceptionStatus     @default(OPEN)
+  source       String
+  resourceType String?
+  resourceId   String?
+  summary      String
+  details      String?
+  assignee     String?
+  openedAt     DateTime            @default(now())
+  resolvedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+  notes  ExceptionNote[]
+
+  @@index([status, severity])
+  @@index([tenantId, openedAt])
+}
+
+model ExceptionNote {
+  id          String   @id @default(cuid())
+  exceptionId String
+  userId      String?
+  body        String
+  createdAt   DateTime @default(now())
+
+  exception ExceptionCase @relation(fields: [exceptionId], references: [id])
+  user      User?         @relation(fields: [userId], references: [id])
+
+  @@index([exceptionId, createdAt])
+}
+
+model NotificationChannel {
+  id           String              @id @default(cuid())
+  name         String
+  type         NotificationChannelType
+  target       String
+  status       OperationalStatus   @default(ACTIVE)
+  lastTestedAt DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  rules NotificationRule[]
+
+  @@index([status, type])
+}
+
+model NotificationRule {
+  id        String            @id @default(cuid())
+  name      String
+  eventType NotificationEventType
+  severity  ExceptionSeverity?
+  channelId String
+  threshold Int?
+  status    OperationalStatus @default(ACTIVE)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  channel NotificationChannel @relation(fields: [channelId], references: [id])
+
+  @@index([eventType, status])
+}
+
+model SystemJobRun {
+  id            String       @id @default(cuid())
+  jobType       SystemJobType
+  status        JobRunStatus @default(PENDING)
+  triggeredBy   String
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  durationMs    Int?
+  input         Json?
+  output        Json?
+  failureReason String?
+  createdAt     DateTime     @default(now())
+
+  @@index([jobType, status])
+  @@index([createdAt])
+}
+
 enum TenantStatus {
   ACTIVE
   SUSPENDED
@@ -191,4 +343,63 @@ enum UserRole {
 enum UserStatus {
   ACTIVE
   DISABLED
+}
+
+enum RateLimitPolicyScope {
+  PLAN
+  TENANT
+}
+
+enum OperationalStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum JobRunStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+}
+
+enum ExceptionType {
+  AUTH_FAILURE
+  RATE_LIMITED
+  BILLING_FAILED
+  JOB_FAILED
+  USAGE_ANOMALY
+  SYSTEM_ERROR
+}
+
+enum ExceptionSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ExceptionStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum NotificationChannelType {
+  WEBHOOK
+  EMAIL
+}
+
+enum NotificationEventType {
+  USAGE_WARNING
+  RATE_LIMITED
+  BILLING_FAILED
+  JOB_FAILED
+  HIGH_PRIORITY_EXCEPTION
+}
+
+enum SystemJobType {
+  USAGE_AGGREGATION
+  BILLING_GENERATION
+  NOTIFICATION_DELIVERY
+  DATA_CLEANUP
 }

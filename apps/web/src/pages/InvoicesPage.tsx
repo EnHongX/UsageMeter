@@ -70,6 +70,10 @@ export function InvoicesPage() {
 
   return (
     <section className="page-section">
+      <div className="page-heading">
+        <p className="eyebrow">计量运营</p>
+        <h1>账单</h1>
+      </div>
       {error ? <div className="empty-state">{error}</div> : null}
       <div className="table-panel">
         <div className="table-header">

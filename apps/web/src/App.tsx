@@ -9,9 +9,12 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
 import { IntegrationPage } from "./pages/IntegrationPage";
 import { BillingRunsPage, ExceptionsPage, LimitsPage } from "./pages/LaunchLoopPages";
+import { NotificationsPage } from "./pages/NotificationsPage";
 import { PlansPage } from "./pages/PlansPage";
+import { RateLimitsPage } from "./pages/RateLimitsPage";
 import { RevenuePage } from "./pages/RevenuePage";
 import { LogsPage, PasswordSettingsPage, SystemSettingsPage } from "./pages/SettingsPage";
+import { SystemJobsPage } from "./pages/SystemJobsPage";
 import { TenantsPage } from "./pages/TenantsPage";
 import { UsagePage } from "./pages/UsagePage";
 import { PlanDetailPage, TenantDetailPage, ApiKeyDetailPage, InvoiceDetailPage } from "./pages/DetailPages";
@@ -40,6 +43,9 @@ function createRouter() {
             { path: "invoices/:id", element: <InvoiceDetailPage /> },
             { path: "billing-runs", element: <BillingRunsPage /> },
             { path: "exceptions", element: <ExceptionsPage /> },
+            { path: "rate-limits", element: <RateLimitsPage /> },
+            { path: "notifications", element: <NotificationsPage /> },
+            { path: "system/jobs", element: <SystemJobsPage /> },
             { path: "integration", element: <IntegrationPage /> },
             { path: "logs", element: <Navigate to="/logs/audit" replace /> },
             { path: "logs/:category", element: <LogsPage /> },
