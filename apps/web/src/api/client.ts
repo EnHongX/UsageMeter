@@ -267,6 +267,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as unknown;
     const message = isApiResponse(body) ? body.message : `Request failed with ${response.status}`;
+    if (response.status === 401 && path !== "/auth/me" && path !== "/auth/login" && path !== "/auth/register") {
+      window.dispatchEvent(new Event("usagemeter:session-expired"));
+    }
     throw new Error(message);
   }
 

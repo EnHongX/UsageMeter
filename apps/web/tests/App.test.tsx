@@ -364,6 +364,12 @@ const apiResponses: Record<string, unknown> = {
         }
       }
     ]
+  },
+  "http://localhost:7612/settings": {
+    systemName: "UsageMeter",
+    defaultPageSize: 10,
+    allowRegistration: true,
+    billingCurrency: "USD"
   }
 };
 
@@ -646,6 +652,16 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "账单日志" })).toBeInTheDocument();
     expect(screen.getByLabelText("按账期筛选")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "总金额 ↕" })).toBeInTheDocument();
+  });
+
+  it("loads system settings instead of rendering a blank page", async () => {
+    window.history.pushState({}, "", "/settings/system");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "系统参数" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("UsageMeter")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("10")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存设置" })).toBeInTheDocument();
   });
 
   it("loads revenue from the backend", async () => {

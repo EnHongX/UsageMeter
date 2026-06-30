@@ -22,6 +22,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setIsLoading(false));
   }, []);
 
+  useEffect(() => {
+    function handleSessionExpired() {
+      setUser(null);
+    }
+
+    window.addEventListener("usagemeter:session-expired", handleSessionExpired);
+    return () => window.removeEventListener("usagemeter:session-expired", handleSessionExpired);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,

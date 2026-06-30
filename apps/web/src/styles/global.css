@@ -210,6 +210,11 @@ a {
 .page-heading {
   display: grid;
   gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid #dce4ee;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgb(31 41 55 / 6%);
 }
 
 .eyebrow {
@@ -228,6 +233,10 @@ h2 {
 h1 {
   font-size: 30px;
   font-weight: 850;
+}
+
+.page-heading h1 {
+  font-size: 22px;
 }
 
 .heading-with-icon {
