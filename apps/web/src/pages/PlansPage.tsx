@@ -73,6 +73,10 @@ export function PlansPage() {
 
   return (
     <section className="page-section">
+      <div className="page-heading">
+        <p className="eyebrow">业务管理</p>
+        <h1>套餐</h1>
+      </div>
       {error ? <div className="empty-state">{error}</div> : null}
       <div className="list-toolbar">
         <div className="filter-panel compact-filter inline-filter">

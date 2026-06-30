@@ -113,6 +113,10 @@ export function PasswordSettingsPage() {
 
   return (
     <section className="page-section">
+      <div className="page-heading">
+        <p className="eyebrow">设置</p>
+        <h1>修改密码</h1>
+      </div>
       {message ? <div className="empty-state">{message}</div> : null}
       <form className="settings-panel" onSubmit={handlePasswordSubmit}>
         <div className="table-header">
@@ -346,12 +350,16 @@ export function LogsPage() {
 
   return (
     <section className="page-section">
+      <div className="page-heading">
+        <p className="eyebrow">日志</p>
+        <h1>{meta.title}</h1>
+      </div>
       <LogSubNav />
       {error ? <div className="empty-state">{error}</div> : null}
       <div className="table-panel">
         <div className="table-header">
           <div>
-            <h2>{meta.title}</h2>
+            <h2>日志明细</h2>
             <p>{meta.description}</p>
           </div>
         </div>

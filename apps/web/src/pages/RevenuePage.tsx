@@ -46,6 +46,10 @@ export function RevenuePage() {
 
   return (
     <section className="page-section">
+      <div className="page-heading">
+        <p className="eyebrow">计量运营</p>
+        <h1>收益</h1>
+      </div>
       {error ? <div className="empty-state">{error}</div> : null}
       <div className="metric-grid revenue-metrics">
         <article className="metric-card accent-teal">

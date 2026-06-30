@@ -427,6 +427,29 @@ describe("App", () => {
     expect(screen.getAllByText("Growth API 成长版").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("uses the standard page heading on business pages", async () => {
+    const routes = [
+      { path: "/tenants", title: "租户" },
+      { path: "/plans", title: "套餐" },
+      { path: "/api-keys", title: "API Key 管理" },
+      { path: "/usage", title: "用量" },
+      { path: "/revenue", title: "收益" },
+      { path: "/invoices", title: "账单" },
+      { path: "/integration", title: "接入文档" },
+      { path: "/settings/password", title: "修改密码" },
+      { path: "/logs/audit", title: "操作审计" }
+    ];
+
+    for (const route of routes) {
+      cleanup();
+      window.history.pushState({}, "", route.path);
+      render(<App />);
+
+      const heading = await screen.findByRole("heading", { name: route.title, level: 1 });
+      expect(heading.closest(".page-heading")).toBeInTheDocument();
+    }
+  });
+
   it("shows tenant related data on tenant detail", async () => {
     window.history.pushState({}, "", "/tenants/tenant_acme");
     render(<App />);

@@ -115,6 +115,10 @@ export function IntegrationPage() {
 
   return (
     <section className="page-section">
+      <div className="page-heading">
+        <p className="eyebrow">计量运营</p>
+        <h1>接入文档</h1>
+      </div>
       <section className="summary-panel integration-summary">
         <div className="panel-title">
           <div>
